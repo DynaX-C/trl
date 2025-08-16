@@ -250,7 +250,15 @@ class SFTConfig(TrainingArguments):
         default=False,
         metadata={"help": "Whether to offload the activations to the CPU."},
     )
-
+    use_dft_loss: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to enable Dynamic Fine Tuning (DFT) loss weighting strategy. If set to `True`, the training loss "
+                "for each token is scaled according to the model’s predicted probability for that token."
+            )
+        },
+    )
     def __post_init__(self):
         self.bf16 = not (self.fp16) if self.bf16 is None else self.bf16
         super().__post_init__()
