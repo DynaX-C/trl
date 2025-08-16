@@ -979,14 +979,13 @@ class SFTTrainer(Trainer):
 
         # Compute token accuracy if we have labels and if the model is not using Liger (no logits)
         if "labels" in inputs and not self.args.use_liger_kernel:
+            shift_logits = outputs.logits[..., :-1, :].contiguous()
+            shift_labels = inputs["labels"][..., 1:].contiguous()
+            # When using Prompt Tuning, skip the virtual tokens in logits before accuracy computation, since they do
+            # not correspond to actual input labels.
+            shift_logits = shift_logits[:, self.num_virtual_tokens :, :]
+            
             with torch.no_grad():
-                shift_logits = outputs.logits[..., :-1, :].contiguous()
-                shift_labels = inputs["labels"][..., 1:].contiguous()
-
-                # When using Prompt Tuning, skip the virtual tokens in logits before accuracy computation, since they do
-                # not correspond to actual input labels.
-                shift_logits = shift_logits[:, self.num_virtual_tokens :, :]
-
                 # Get predictions
                 predictions = shift_logits.argmax(dim=-1)
 
@@ -1006,7 +1005,12 @@ class SFTTrainer(Trainer):
                 total_sum = total_tokens.sum()
                 accuracy = (correct_tokens.sum() / total_sum).item() if total_sum > 0 else 0.0
                 self._metrics[mode]["mean_token_accuracy"].append(accuracy)
-
+                
+            # Dynamic Fine Tuning (DFT): scale each token’s loss by its predicted probability (detached to avoid gradient flow)
+            # For more details, see http://arxiv.org/abs/2508.05629
+            if args.use_dft_loss:
+                loss = loss * torch.softmax(shift_logits, dim=-1).gather(1, shift_labels.unsqueeze(-1)).squeeze(-1).detach()
+                
         return (loss, outputs) if return_outputs else loss
 
     # Override training step to add activation offloading context.
